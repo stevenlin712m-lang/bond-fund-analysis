@@ -7,7 +7,8 @@
 支持的 akshare 接口:
     - fund_open_fund_rank_em     基金排名列表
     - fund_open_fund_info_em     基金基本信息
-    - fund_open_fund_hist_em     历史净值
+    - fund_open_fund_info_em     新版 AKShare 历史净值
+    - fund_open_fund_hist_em     旧版 AKShare 历史净值（兼容）
     - fund_open_fund_hold_em     持仓明细
     - fund_manager_interface     基金经理
     - fund_rating_all            基金评级
@@ -233,13 +234,43 @@ def get_fund_nav(fund_code: str, start_date: str = None, end_date: str = None) -
     if cached is not None:
         return pd.DataFrame(cached)
 
-    def _fetch():
-        df = ak.fund_open_fund_hist_em(
+    def _fetch_from_current_akshare():
+        """新版 AKShare：分别读取单位净值、累计净值并按日期合并."""
+        unit_df = ak.fund_open_fund_info_em(
             symbol=fund_code,
-            indicator="累计净值",
-            start_date=start_date,
-            end_date=end_date,
+            indicator="单位净值走势",
+            period="成立来",
         )
+        acc_df = ak.fund_open_fund_info_em(
+            symbol=fund_code,
+            indicator="累计净值走势",
+            period="成立来",
+        )
+
+        if unit_df is None:
+            unit_df = pd.DataFrame()
+        if acc_df is None:
+            acc_df = pd.DataFrame()
+        if unit_df.empty and acc_df.empty:
+            return pd.DataFrame()
+        if unit_df.empty:
+            return acc_df
+        if acc_df.empty:
+            return unit_df
+        return pd.merge(unit_df, acc_df, on="净值日期", how="outer")
+
+    def _fetch():
+        legacy_fetch = getattr(ak, "fund_open_fund_hist_em", None)
+        if legacy_fetch is not None:
+            df = legacy_fetch(
+                symbol=fund_code,
+                indicator="累计净值",
+                start_date=start_date,
+                end_date=end_date,
+            )
+        else:
+            df = _fetch_from_current_akshare()
+
         if df is None or df.empty:
             return pd.DataFrame()
 
@@ -255,6 +286,10 @@ def get_fund_nav(fund_code: str, start_date: str = None, end_date: str = None) -
         for col in ["nav", "acc_nav", "daily_return"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date)
+        df = df[df["date"].between(start_ts, end_ts)]
         df = df.sort_values("date").reset_index(drop=True)
         return df
 
