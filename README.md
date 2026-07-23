@@ -19,6 +19,7 @@
 - **一键报告** — Markdown 格式的全面分析报告
 - **债基因子归因** — 利率、信用、转债、资金面因子 OLS 归因
 - **定期报告解析** — 提取季报 PDF 的资产配置、经理观点和债券持仓
+- **公告自动下载** — 按基金代码查询天天基金季报、半年报、年报并校验 PDF
 - **双版本输出** — 专业投研版与客户通俗版 Markdown，统一事实口径
 
 ## 技术栈
@@ -65,6 +66,15 @@ python fund_cli.py report 110020
 
 # 解析基金定期报告 PDF
 python fund_cli.py quarter path/to/基金季报.pdf
+
+# 查询最近三年的年报
+python fund_cli.py reports 000001 --type annual --years 3
+
+# 下载最新季报
+python fund_cli.py download-report 000001 --type quarter
+
+# 一步完成：下载最新季报、解析并生成专业版和客户版
+python fund_cli.py auto-report 000001 --type quarter
 
 # 生成债基专业版与客户版报告
 python fund_cli.py bond-report 000001 \
@@ -126,13 +136,16 @@ fund-analysis/
 │   └── reporter.py                    # 报告生成
 │   ├── bond_attribution.py            # 债基净值因子归因
 │   ├── quarterly_parser.py            # 基金定期报告 PDF 解析
-│   └── bond_reporter.py               # 专业版/客户版 Markdown
+│   ├── report_downloader.py            # 天天基金公告查询与 PDF 下载
+│   ├── disclosure_reporter.py          # 定期报告双版本解读
+│   └── bond_reporter.py                # 归因专业版/客户版 Markdown
 ├── tests/                              # 离线单元测试
 ├── docs/BOND_FUND_GUIDE.md             # 中文分步使用指南
 ├── data/
 │   ├── README.md                      # 数据目录说明
 │   ├── cache/                         # 自动缓存
 │   ├── csv/                           # 导出的 CSV
+│   ├── source_reports/                # 自动下载的原始 PDF（不提交 Git）
 │   └── reports/                       # Markdown 报告
 └── examples/
     └── demo.py                        # 综合演示
@@ -169,6 +182,7 @@ fund-analysis/
 3. 过往业绩不代表未来表现
 4. 建议结合实际市场环境和自身风险承受能力使用
 5. 净值因子归因是统计推断，不代表基金真实持仓归因
+6. 天天基金/东方财富为公开网页数据源，网页接口变化时可能暂时无法下载
 
 ## 债券基金扩展指南
 

@@ -17,6 +17,7 @@ matplotlib>=3.6.0
 
 # 基金定期报告 PDF 文本提取
 pypdf>=5.0.0
+requests>=2.28.0
 
 # 开发与测试
 pytest>=8.0.0

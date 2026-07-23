@@ -11,6 +11,9 @@ FundAnalyzer CLI — 公募基金智能分析命令行工具
     python fund_cli.py report <code>            生成 Markdown 报告
     python fund_cli.py export <code>            导出净值 CSV
     python fund_cli.py quarter <pdf>            解析基金定期报告
+    python fund_cli.py reports <code>           查询可下载的定期报告
+    python fund_cli.py download-report <code>   下载最新定期报告
+    python fund_cli.py auto-report <code>       自动下载、解析并生成双版本
     python fund_cli.py bond-report <code>       生成债基专业版与客户版
     python fund_cli.py clearcache               清空缓存
 """
@@ -26,9 +29,11 @@ from fund_analyzer import (
     analyzer,
     bond_attribution,
     bond_reporter,
+    disclosure_reporter,
     fetcher,
     portfolio,
     quarterly_parser,
+    report_downloader,
     reporter,
 )
 
@@ -243,6 +248,73 @@ def cmd_quarter(args):
             print(f"  - {warning}")
 
 
+def cmd_reports(args):
+    """查询天天基金可下载的定期报告。"""
+    records = report_downloader.list_reports(
+        args.code,
+        args.type,
+        years=args.years,
+        include_summary=args.include_summary,
+    )
+    if not records:
+        print("没有找到符合条件的定期报告。")
+        return
+    labels = {"quarter": "季报", "semiannual": "半年报", "annual": "年报"}
+    print(f"\n找到 {len(records)} 份报告：\n")
+    print(f"{'公告日期':<12} {'类型':<8} {'公告标题'}")
+    print("-" * 90)
+    for item in records:
+        print(
+            f"{item.published_date.isoformat():<12} "
+            f"{labels[item.report_type]:<8} {item.title}"
+        )
+
+
+def cmd_download_report(args):
+    """查询并下载基金定期报告。"""
+    records = report_downloader.list_reports(
+        args.code,
+        args.type,
+        years=args.years,
+        include_summary=args.include_summary,
+    )
+    if not records:
+        raise LookupError("没有找到符合条件的定期报告")
+    selected = records if args.all else records[:1]
+    for record in selected:
+        path = report_downloader.download_report(
+            record, args.output_dir, force=args.force
+        )
+        print(f"已下载：{path}")
+
+
+def cmd_auto_report(args):
+    """自动下载最新报告、解析 PDF 并生成双版本 Markdown。"""
+    record, pdf_path = report_downloader.download_latest_report(
+        args.code,
+        args.type,
+        output_dir=args.download_dir,
+        force=args.force,
+    )
+    print(f"已取得最新报告：{record.title}")
+    print(f"PDF：{pdf_path}")
+    parsed = quarterly_parser.parse_quarterly_report(str(pdf_path))
+    professional = disclosure_reporter.generate_professional(record, parsed)
+    client = disclosure_reporter.generate_client(record, parsed)
+    os.makedirs(args.output_dir, exist_ok=True)
+    stem = f"{args.code}_{args.type}"
+    professional_path = os.path.join(
+        args.output_dir, f"{stem}_professional.md"
+    )
+    client_path = os.path.join(args.output_dir, f"{stem}_client.md")
+    with open(professional_path, "w", encoding="utf-8") as file:
+        file.write(professional)
+    with open(client_path, "w", encoding="utf-8") as file:
+        file.write(client)
+    print(f"专业版已保存：{professional_path}")
+    print(f"客户版已保存：{client_path}")
+
+
 def cmd_bond_report(args):
     """生成债券基金专业版和客户版报告."""
     nav_df = fetcher.get_fund_nav(args.code, args.start_date, args.end_date)
@@ -305,6 +377,9 @@ def main():
   python fund_cli.py optimize 110020 000311 005827
   python fund_cli.py report 110020
   python fund_cli.py quarter data/reports/基金季报.pdf
+  python fund_cli.py reports 000001 --type annual --years 3
+  python fund_cli.py download-report 000001 --type quarter
+  python fund_cli.py auto-report 000001 --type quarter
   python fund_cli.py bond-report 000000 --factor-csv data/factors.csv --quarter-pdf data/基金季报.pdf
   python fund_cli.py export 110020
   python fund_cli.py clearcache
@@ -344,6 +419,62 @@ def main():
     p_quarter = subparsers.add_parser("quarter", help="解析基金季报/中报/年报 PDF")
     p_quarter.add_argument("pdf", type=str, help="定期报告 PDF 路径")
 
+    # reports
+    p_reports = subparsers.add_parser("reports", help="查询天天基金定期报告")
+    p_reports.add_argument("code", type=str, help="基金代码")
+    p_reports.add_argument(
+        "--type",
+        choices=report_downloader.REPORT_TYPES,
+        default="all",
+        help="报告类型",
+    )
+    p_reports.add_argument("--years", type=int, help="仅显示最近 N 个自然年")
+    p_reports.add_argument(
+        "--include-summary", action="store_true", help="同时显示报告摘要"
+    )
+
+    # download-report
+    p_download = subparsers.add_parser(
+        "download-report", help="从天天基金下载定期报告 PDF"
+    )
+    p_download.add_argument("code", type=str, help="基金代码")
+    p_download.add_argument(
+        "--type",
+        choices=report_downloader.REPORT_TYPES,
+        default="quarter",
+        help="报告类型",
+    )
+    p_download.add_argument("--years", type=int, help="仅查最近 N 个自然年")
+    p_download.add_argument(
+        "--all", action="store_true", help="下载所有符合条件的报告，默认只下载最新一份"
+    )
+    p_download.add_argument(
+        "--include-summary", action="store_true", help="允许下载报告摘要"
+    )
+    p_download.add_argument(
+        "--output-dir", default=os.path.join("data", "source_reports")
+    )
+    p_download.add_argument("--force", action="store_true", help="覆盖本地缓存")
+
+    # auto-report
+    p_auto = subparsers.add_parser(
+        "auto-report", help="自动下载最新报告并生成专业版和客户版"
+    )
+    p_auto.add_argument("code", type=str, help="基金代码")
+    p_auto.add_argument(
+        "--type",
+        choices=("quarter", "semiannual", "annual"),
+        default="quarter",
+        help="报告类型",
+    )
+    p_auto.add_argument(
+        "--download-dir", default=os.path.join("data", "source_reports")
+    )
+    p_auto.add_argument(
+        "--output-dir", default=os.path.join("data", "reports")
+    )
+    p_auto.add_argument("--force", action="store_true", help="重新下载报告")
+
     # bond-report
     p_bond = subparsers.add_parser("bond-report", help="生成债基专业版与客户版报告")
     p_bond.add_argument("code", type=str, help="基金代码")
@@ -381,6 +512,9 @@ def main():
         "optimize": cmd_optimize,
         "report": cmd_report,
         "quarter": cmd_quarter,
+        "reports": cmd_reports,
+        "download-report": cmd_download_report,
+        "auto-report": cmd_auto_report,
         "bond-report": cmd_bond_report,
         "export": cmd_export,
         "clearcache": cmd_clearcache,

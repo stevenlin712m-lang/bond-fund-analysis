@@ -48,6 +48,7 @@ htmlcov/
 data/cache/
 data/csv/
 data/reports/
+data/source_reports/
 
 # Jupyter
 .ipynb_checkpoints/
