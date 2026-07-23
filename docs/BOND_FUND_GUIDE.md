@@ -29,7 +29,51 @@ date,rate,credit,convertible,liquidity
 指数必须使用同一频率，日期应覆盖基金净值区间。若 CSV 已经是日收益率，加
 `--factor-values-are-returns`。
 
-## 第三步：解析季报
+## 第三步：自动查询和下载季报、年报
+
+不再需要先到网页手动下载。输入基金代码即可查看报告：
+
+```bash
+python fund_cli.py reports 000001 --type all --years 3
+```
+
+报告类型可选：
+
+- `quarter`：季报
+- `semiannual`：半年报
+- `annual`：年报
+- `all`：全部定期报告
+
+下载最新一份季报：
+
+```bash
+python fund_cli.py download-report 000001 --type quarter
+```
+
+原始 PDF 和来源元数据会保存在 `data/source_reports/基金代码/`。程序会校验
+PDF 文件头并记录 SHA256，重复执行时默认使用本地文件。
+
+## 第四步：一步生成专业版和客户版
+
+```bash
+python fund_cli.py auto-report 000001 --type quarter
+```
+
+这个命令会自动完成：
+
+1. 查询天天基金定期报告公告；
+2. 选择最新的完整报告（默认排除“摘要”）；
+3. 从东方财富 PDF 服务器下载并校验文件；
+4. 提取资产配置、经理观点和前五大债券持仓；
+5. 在 `data/reports/` 生成专业版和客户通俗版 Markdown。
+
+半年报或年报只需更改类型：
+
+```bash
+python fund_cli.py auto-report 000001 --type annual
+```
+
+## 第五步：解析已有 PDF
 
 ```bash
 python fund_cli.py quarter path/to/基金季报.pdf
@@ -38,7 +82,7 @@ python fund_cli.py quarter path/to/基金季报.pdf
 Codex 会提取报告期、基金代码、资产配置、基金经理观点和前五大债券持仓。
 若 PDF 是扫描件，先 OCR；任何自动提取结果都应回看原文证据。
 
-## 第四步：生成两种报告
+## 第六步：加入净值因子归因后生成两种报告
 
 ```bash
 python fund_cli.py bond-report 000001 \
@@ -51,7 +95,7 @@ python fund_cli.py bond-report 000001 \
 - `000001_professional.md`：包含 Beta、贡献估计、R²、原文证据和方法局限。
 - `000001_client.md`：说明主要收益来源、适合行情、风险和沟通边界。
 
-## 第五步：先跑离线示例
+## 第七步：先跑离线示例
 
 ```bash
 python examples/bond_demo.py
@@ -63,3 +107,6 @@ python examples/bond_demo.py
 
 净值因子归因属于统计推断，不能写成基金真实持仓事实；季报属于已披露事实，
 但有披露时滞。报告固定区分这两类信息，正式对客前仍需人工复核。
+
+自动下载依赖天天基金/东方财富公开网页接口，不需要 API Key，但不属于承诺
+稳定性的商业数据服务。若网页结构变化，程序会明确报错，不会把错误页面当成 PDF。
