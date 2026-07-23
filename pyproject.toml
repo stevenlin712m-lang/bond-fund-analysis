@@ -1,0 +1,8 @@
+[project]
+name = "bond-fund-analyzer"
+version = "1.1.0"
+description = "中国公募基金分析及债券基金归因、季报解析和双版本报告"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
