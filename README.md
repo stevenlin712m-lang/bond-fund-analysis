@@ -88,6 +88,17 @@ python fund_cli.py export 110020
 python fund_cli.py clearcache
 ```
 
+### 网页版使用
+
+不需要记命令参数，启动后在网页输入6位基金代码：
+
+```bash
+python start_web.py
+```
+
+浏览器会自动打开 `http://127.0.0.1:8765`。选择季报、半年报或年报后点击
+“开始分析”，页面会展示专业版、客户沟通版，并提供 Markdown 和原始 PDF 下载。
+
 ### 3. Jupyter Notebook
 
 ```bash
@@ -128,6 +139,8 @@ fund-analysis/
 ├── requirements.txt                   # 依赖
 ├── fund_analyzer.ipynb                # Jupyter Notebook 教程
 ├── fund_cli.py                        # 命令行工具
+├── start_web.py                       # 网页版一键启动
+├── web_app.py                         # 本地网页界面
 ├── fund_analyzer/
 │   ├── __init__.py                    # 包初始化
 │   ├── fetcher.py                     # 数据获取 (akshare)
