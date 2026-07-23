@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from . import bond_methodology
 from .quarterly_parser import QuarterlyReport
 from .report_downloader import ReportRecord
 
@@ -22,6 +23,7 @@ def generate_professional(
 ) -> str:
     """生成带原文证据、数据口径和局限性的专业版。"""
     name, code = _identity(record, parsed)
+    methodology = bond_methodology.evaluate_bond_fund(parsed, performance)
     lines = [
         f"# 基金定期报告专业分析：{name}（{code}）",
         "",
@@ -56,7 +58,30 @@ def generate_professional(
             lines.append(f"| {item['year']} | {item['return_pct']:.2f}% | {scope} |")
     else:
         lines.append("> 未取得历史净值，本节不计算。")
-    lines += ["", "## 二、已披露资产配置", ""]
+    lines += [
+        "",
+        "## 二、三个核心问题",
+        "",
+        f"### 1. 这是什么类型的债券基金？",
+        "",
+        f"- 初步分类：**{methodology['fund_type']}**",
+        f"- 判断依据：{methodology['type_basis']}",
+        "- 分类属于公开披露基础上的保守识别，最终以基金合同和最新招募说明书为准。",
+        "",
+        "### 2. 过去赚的钱可能从哪里来？",
+        "",
+    ]
+    for item in methodology["earning_modes"]:
+        lines.append(
+            f"- **{item['label']}**：{item['evidence']}（置信度：{item['confidence']}）"
+        )
+    lines += [
+        "",
+        "### 3. 为赚钱承担了什么风险？",
+        "",
+    ]
+    lines += [f"- {item}" for item in methodology["risk_flags"]]
+    lines += ["", "## 三、已披露资产配置", ""]
     if parsed.asset_allocation:
         labels = {"bond": "债券", "stock": "股票", "fund": "基金", "cash": "现金类"}
         lines += ["| 资产类别 | 占比 | 原文证据 |", "|---|---:|---|"]
@@ -67,7 +92,7 @@ def generate_professional(
             )
     else:
         lines.append("> PDF 文本层未提取到可靠的资产配置比例，需查看原文表格。")
-    lines += ["", "## 三、前五大债券持仓", ""]
+    lines += ["", "## 四、前五大债券持仓", ""]
     if parsed.top_bond_holdings:
         lines += ["| 债券名称 | 代码 | 占基金净值 |", "|---|---|---:|"]
         for item in parsed.top_bond_holdings:
@@ -77,17 +102,49 @@ def generate_professional(
             )
     else:
         lines.append("> PDF 文本层未提取到可靠的前五大债券持仓，需查看原文表格。")
-    lines += ["", "## 四、基金经理运作分析（原文提取）", ""]
+    lines += ["", "## 五、基金经理运作分析（原文提取）", ""]
     lines.append(parsed.manager_commentary or "> 未识别到该章节，请查阅原文。")
     lines += [
         "",
-        "## 五、研究解读",
+        "## 六、未来能否延续：利率—信用—资金—权益框架",
+        "",
+    ]
+    lines += [f"- {item}" for item in methodology["future_framework"]]
+    lines += [
+        "",
+        "判断逻辑：过去依靠长久期、信用下沉、高杠杆或转债获得的高收益，"
+        "只有在对应市场环境仍有利、且当前估值仍提供足够补偿时，才更可能延续。",
+        "",
+        "## 七、100分评分框架（按已取得数据评分）",
+        "",
+        "| 维度 | 权重 | 当前得分 | 依据/待补数据 |",
+        "|---|---:|---:|---|",
+    ]
+    for row in methodology["score_rows"]:
+        score = "待补数据" if row["score"] is None else f"{row['score']:.1f}"
+        lines.append(
+            f"| {row['dimension']} | {row['weight']} | {score} | {row['basis']} |"
+        )
+    lines += [
+        "",
+        f"> 当前有依据的部分得分：{methodology['assessed_score']:.1f}"
+        f" / {methodology['assessed_weight']}。未取得证据的维度不按中性分填充，"
+        "避免产生虚假的100分精确结论。",
+        "",
+        "### 完成100分评价还需要",
+        "",
+    ]
+    lines += [f"- {item}" for item in methodology["missing_data"]]
+    lines += [
+        "",
+        "## 八、研究解读与边界",
         "",
         "- 本报告中的配置比例和持仓属于公告日已披露事实，不等于当前实时持仓。",
         "- 经理观点用于识别久期、信用、杠杆或转债策略线索；若无明确原文，不作确定性归因。",
-        "- 判断未来表现仍需叠加净值因子归因、利率曲线、信用利差和资金面数据。",
+        "- 同类型基金才能直接比较，短债基金不应与二级债基或转债基金直接比收益。",
+        "- 理想债基通常不是每年第一，而是多数阶段保持中上、较少落入最后四分之一。",
         "",
-        "## 六、解析提示与风险",
+        "## 九、解析提示与风险",
         "",
     ]
     lines += [f"- {warning}" for warning in parsed.warnings]
@@ -111,6 +168,7 @@ def generate_client(
 ) -> str:
     """生成不承诺收益、避免过度推断的客户通俗版。"""
     name, code = _identity(record, parsed)
+    methodology = bond_methodology.evaluate_bond_fund(parsed, performance)
     bond = parsed.asset_allocation.get("bond")
     stock = parsed.asset_allocation.get("stock")
     allocation_text = (
@@ -147,6 +205,15 @@ def generate_client(
         lines.append("未取得历史净值，暂不展示量化指标。")
     lines += [
         "",
+        "## 用三个问题理解这只基金",
+        "",
+        f"1. **它是什么基金？** 初步识别为“{methodology['fund_type']}”。"
+        f"依据是：{methodology['type_basis']}。",
+        "2. **过去可能靠什么赚钱？** "
+        + "、".join(item["label"] for item in methodology["earning_modes"]) + "。",
+        "3. **承担了什么风险？** "
+        + "；".join(methodology["risk_flags"]) + "。",
+        "",
         "## 基金经理做了什么",
         "",
         parsed.manager_commentary[:1200]
@@ -159,6 +226,8 @@ def generate_client(
         "- 信用债可能受发行人资质和信用利差变化影响。",
         "- 若持有股票或可转债，净值还会受到权益市场波动影响。",
         "- 定期报告存在披露时滞，基金经理可能已在报告期后调仓。",
+        "- 未来能否延续，要继续观察利率、信用利差、资金成本以及股票和转债环境。",
+        "- 不同类型债基不能只按收益率直接比较。",
         "",
         "## 沟通边界",
         "",

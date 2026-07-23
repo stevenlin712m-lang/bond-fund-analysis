@@ -26,6 +26,7 @@ __all__ = [
     "report_downloader",
     "disclosure_reporter",
     "performance_summary",
+    "bond_methodology",
 ]
 
 
