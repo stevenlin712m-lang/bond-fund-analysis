@@ -32,6 +32,7 @@ from fund_analyzer import (
     disclosure_reporter,
     fetcher,
     portfolio,
+    performance_summary,
     quarterly_parser,
     report_downloader,
     reporter,
@@ -299,8 +300,14 @@ def cmd_auto_report(args):
     print(f"已取得最新报告：{record.title}")
     print(f"PDF：{pdf_path}")
     parsed = quarterly_parser.parse_quarterly_report(str(pdf_path))
-    professional = disclosure_reporter.generate_professional(record, parsed)
-    client = disclosure_reporter.generate_client(record, parsed)
+    nav_df = fetcher.get_fund_nav(
+        args.code, start_date="1990-01-01", end_date=None
+    )
+    performance = performance_summary.calculate_performance_summary(nav_df)
+    professional = disclosure_reporter.generate_professional(
+        record, parsed, performance
+    )
+    client = disclosure_reporter.generate_client(record, parsed, performance)
     os.makedirs(args.output_dir, exist_ok=True)
     stem = f"{args.code}_{args.type}"
     professional_path = os.path.join(

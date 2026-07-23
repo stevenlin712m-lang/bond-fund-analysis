@@ -9,7 +9,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-from fund_analyzer import disclosure_reporter, quarterly_parser, report_downloader
+from fund_analyzer import (
+    disclosure_reporter,
+    fetcher,
+    performance_summary,
+    quarterly_parser,
+    report_downloader,
+)
 
 
 HOST = "127.0.0.1"
@@ -52,9 +58,16 @@ font-size:16px;font-weight:700;cursor:pointer}} button:hover{{background:#244bd7
 .hint{{margin-top:18px;color:var(--muted);font-size:13px}}
 .status{{margin-top:22px;padding:14px 16px;border-radius:11px;background:#eef4ff;
 border-left:4px solid var(--blue)}} .error{{background:#fff1f0;border-color:#d92d20}}
-.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}}
+.section-title{{margin:28px 0 12px;font-size:22px}}
+.metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0}}
 .metric{{background:white;border:1px solid var(--line);border-radius:15px;padding:16px}}
 .metric small{{color:var(--muted)}} .metric strong{{display:block;font-size:21px;margin-top:7px}}
+.table-wrap{{overflow:auto;background:white;border:1px solid var(--line);border-radius:15px}}
+table{{width:100%;border-collapse:collapse}} th,td{{padding:13px 16px;text-align:right;
+border-bottom:1px solid var(--line)}} th:first-child,td:first-child{{text-align:left}}
+th{{font-size:13px;color:var(--muted);background:#f8fafc}} tr:last-child td{{border-bottom:0}}
+.positive{{color:#087443;font-weight:700}} .negative{{color:#c4320a;font-weight:700}}
+.method{{color:var(--muted);font-size:13px;margin:10px 2px 0}}
 .tabs{{display:flex;gap:8px;margin-top:24px}} .tab{{background:#e9edf5;color:#344054;
 padding:0 17px}} .tab.active{{background:#182230;color:white}}
 .tabbody{{display:none;margin-top:12px}} .tabbody.active{{display:block}}
@@ -97,13 +110,42 @@ def _download_link(path: Path, label: str) -> str:
     return f'<a href="/download?path={quote(str(relative))}">{html.escape(label)}</a>'
 
 
+def _display_metric(performance: dict, key: str, suffix: str = "") -> str:
+    value = performance.get(key)
+    return "未计算" if value is None else f"{value}{suffix}"
+
+
+def _annual_returns_table(performance: dict) -> str:
+    rows = []
+    for item in reversed(performance.get("annual_returns", [])):
+        css_class = "positive" if item["return_pct"] >= 0 else "negative"
+        scope = "非完整年度" if item["is_partial"] else "完整自然年"
+        rows.append(
+            f"<tr><td>{item['year']}年</td>"
+            f'<td class="{css_class}">{item["return_pct"]:.2f}%</td>'
+            f"<td>{scope}</td><td>{item['start_date']} 至 {item['end_date']}</td></tr>"
+        )
+    return (
+        '<div class="table-wrap"><table><thead><tr><th>年份</th><th>当年收益</th>'
+        "<th>口径</th><th>净值区间</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></div>"
+    )
+
+
 def _result_html(code: str, report_type: str) -> str:
+    nav_df = fetcher.get_fund_nav(
+        code, start_date="1990-01-01", end_date=None
+    )
+    performance = performance_summary.calculate_performance_summary(nav_df)
     record, pdf_path = report_downloader.download_latest_report(
         code, report_type, output_dir=ROOT / "data/source_reports"
     )
     parsed = quarterly_parser.parse_quarterly_report(str(pdf_path))
-    professional = disclosure_reporter.generate_professional(record, parsed)
-    client = disclosure_reporter.generate_client(record, parsed)
+    professional = disclosure_reporter.generate_professional(
+        record, parsed, performance
+    )
+    client = disclosure_reporter.generate_client(record, parsed, performance)
 
     output_dir = ROOT / "data/reports"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -117,15 +159,30 @@ def _result_html(code: str, report_type: str) -> str:
     warnings = "<br>".join(html.escape(item) for item in parsed.warnings)
     return f"""
 <div class="status">分析完成：{html.escape(record.title)}</div>
+<h2 class="section-title">指标速览</h2>
 <section class="metrics">
- <div class="metric"><small>基金代码</small><strong>{code}</strong></div>
- <div class="metric"><small>报告期</small><strong>{html.escape(parsed.report_period or "待核对")}</strong></div>
- <div class="metric"><small>债券占比</small><strong>{bond_text}</strong></div>
- <div class="metric"><small>识别债券</small><strong>{len(parsed.top_bond_holdings)}只</strong></div>
+ <div class="metric"><small>全历史年化收益</small><strong>{_display_metric(performance, "annualized_return_pct", "%")}</strong></div>
+ <div class="metric"><small>年化波动率</small><strong>{_display_metric(performance, "annualized_volatility_pct", "%")}</strong></div>
+ <div class="metric"><small>最大回撤</small><strong>{_display_metric(performance, "max_drawdown_pct", "%")}</strong></div>
+ <div class="metric"><small>夏普比率</small><strong>{_display_metric(performance, "sharpe_ratio")}</strong></div>
+ <div class="metric"><small>索提诺比率</small><strong>{_display_metric(performance, "sortino_ratio")}</strong></div>
+ <div class="metric"><small>卡尔玛比率</small><strong>{_display_metric(performance, "calmar_ratio")}</strong></div>
+ <div class="metric"><small>VaR（95%）</small><strong>{_display_metric(performance, "var_95_pct", "%")}</strong></div>
+ <div class="metric"><small>CVaR（95%）</small><strong>{_display_metric(performance, "cvar_95_pct", "%")}</strong></div>
+ <div class="metric"><small>胜率</small><strong>{_display_metric(performance, "win_rate_pct", "%")}</strong></div>
+ <div class="metric"><small>盈亏比</small><strong>{_display_metric(performance, "profit_factor")}</strong></div>
+ <div class="metric"><small>最大连续亏损</small><strong>{performance["max_consecutive_loss_days"]}天</strong></div>
+ <div class="metric"><small>债券占比（报告期末）</small><strong>{bond_text}</strong></div>
 </section>
+<p class="method">净值指标区间：{performance["analysis_start"]} 至 {performance["analysis_end"]}，
+共 {performance["observations"]} 个净值观察值；优先使用累计净值计算。</p>
+<h2 class="section-title">成立以来历年收益</h2>
+{_annual_returns_table(performance)}
+<p class="method">首个成立年度及当前年度标记为“非完整年度”；其他年份按上一年末至当年末净值计算。</p>
 <div class="tabs">
  <button class="tab active" onclick="showTab('professional',this)">专业分析</button>
  <button class="tab" onclick="showTab('client',this)">客户沟通版</button>
+ <button class="tab" onclick="showTab('disclosure',this)">定期报告摘要</button>
  <button class="tab" onclick="showTab('source',this)">原始资料</button>
 </div>
 <section id="professional" class="tabbody active">
@@ -135,6 +192,13 @@ def _result_html(code: str, report_type: str) -> str:
 <section id="client" class="tabbody">
  <div class="downloads">{_download_link(client_path, "下载客户版 Markdown")}</div>
  <pre>{html.escape(client)}</pre>
+</section>
+<section id="disclosure" class="tabbody panel source">
+ <p><b>报告期：</b>{html.escape(parsed.report_period or "待核对")}</p>
+ <p><b>债券占比：</b>{bond_text}</p>
+ <p><b>识别前五大债券：</b>{len(parsed.top_bond_holdings)}只</p>
+ <p><b>基金经理运作分析：</b></p>
+ <p>{html.escape(parsed.manager_commentary or "未识别")}</p>
 </section>
 <section id="source" class="tabbody panel source">
  <p><b>公告：</b>{html.escape(record.title)}</p>
