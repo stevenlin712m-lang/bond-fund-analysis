@@ -30,5 +30,9 @@ def test_disclosure_reports_distinguish_professional_and_client():
     client = disclosure_reporter.generate_client(record, parsed)
     assert "原文证据" in professional
     assert "公告详情" in professional
+    assert "三个核心问题" in professional
+    assert "100分评分框架" in professional
+    assert "利率—信用—资金—权益框架" in professional
+    assert "用三个问题理解这只基金" in client
     assert "不代表今天的实时持仓" in client
     assert professional != client
