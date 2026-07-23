@@ -13,7 +13,7 @@ FundAnalyzer — 公募基金智能分析工具包
 
 from importlib import import_module
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "FundAnalyzer"
 __all__ = [
     "fetcher",
@@ -23,6 +23,8 @@ __all__ = [
     "bond_attribution",
     "quarterly_parser",
     "bond_reporter",
+    "report_downloader",
+    "disclosure_reporter",
 ]
 
 
